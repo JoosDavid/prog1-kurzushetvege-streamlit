@@ -63,7 +63,7 @@ if st.button("Load Quiz"):
         st.session_state["questions"] = [
             {
                 "question": safe(q["question"]),
-                "answer": safe(q["answer"]),
+                "answers": q["answers"],
                 "type": q["type"]
             }
             for q in load_quiz()
@@ -83,39 +83,29 @@ if questions:
         user_answers = {}
 
         for idx, q in enumerate(questions):
-
+        
             st.markdown(f"### Question {idx + 1}")
             st.markdown(safe(q["question"]))
 
-            if q["type"] == "integer":
+            answers = q["answers"]
+            user_answers[idx] = []
 
-                user_answers[idx] = st.number_input(
-                    f"Answer {idx}",
-                    step=1,
-                    key=f"q_{idx}"
-                )
-
-            elif q["type"] == "float":
-
-                user_answers[idx] = st.number_input(
-                    f"Answer {idx}",
-                    key=f"q_{idx}"
-                )
-
-            elif q["type"] == "boolean":
-
-                user_answers[idx] = st.selectbox(
-                    f"Answer {idx}",
-                    ["True", "False"],
-                    key=f"q_{idx}"
-                )
-
+            if len(answers) == 1:
+                user_answers[idx] = [
+                    st.text_input(
+                        f"Answer {idx}",
+                        key=f"q_{idx}"
+                    )
+                ]
             else:
-
-                user_answers[idx] = st.text_input(
-                    f"Answer {idx}",
-                    key=f"q_{idx}"
-                )
+                user_answers[idx] = []
+                for j in range(len(answers)):
+                    user_answers[idx].append(
+                        st.text_input(
+                            f"Answer {idx}.{j+1}",
+                            key=f"q_{idx}_{j}"
+                        )
+                    )
 
         submitted = st.form_submit_button("Submit Quiz")
 
@@ -126,7 +116,7 @@ if questions:
                 st.stop()
 
             safe_answers = {
-                k: safe(v)
+                k: [safe(x) for x in v]
                 for k, v in user_answers.items()
             }
 
@@ -155,7 +145,8 @@ if "results" in st.session_state:
 
     df = pd.DataFrame(st.session_state["results"]["details"])
 
-    cols = ["question", "user_answer", "correct_answer", "correct"]
+    # optional safety (ensures columns always exist)
+    cols = ["question", "user_answer", "correct_answers", "first_correct", "all_correct"]
     df = df.reindex(columns=cols)
 
     st.dataframe(df)

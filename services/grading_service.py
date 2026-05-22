@@ -4,33 +4,43 @@ from services.utils import normalize_answer
 def grade_quiz(questions, user_answers):
 
     score = 0
-
     results = []
 
-    for idx, question_data in enumerate(questions):
+    for idx, q in enumerate(questions):
 
-        correct_answer = normalize_answer(
-            question_data["answer"]
+        correct_answers = [normalize_answer(a) for a in q["answers"]]
+        user = user_answers[idx]
+
+        # normalize user input
+        if isinstance(user, list):
+            user_answers_clean = [normalize_answer(u) for u in user]
+        else:
+            user_answers_clean = [normalize_answer(user)]
+
+        first_correct = (
+            len(user_answers_clean) > 0 and
+            len(correct_answers) > 0 and
+            user_answers_clean[0] == correct_answers[0]
         )
 
-        user_answer = normalize_answer(
-            user_answers[idx]
-        )
+        all_correct = user_answers_clean == correct_answers
 
-        correct = user_answer == correct_answer
+        if first_correct:
+            score += 1
 
-        if correct:
+        if all_correct:
             score += 1
 
         results.append({
-            "question": question_data["question"],
-            "correct_answer": correct_answer,
-            "user_answer": user_answer,
-            "correct": correct
+            "question": q["question"],
+            "correct_answers": correct_answers,
+            "user_answer": user_answers_clean,
+            "first_correct": first_correct,
+            "all_correct": all_correct
         })
 
     return {
         "score": score,
-        "total": len(questions),
+        "total": len(questions) * 2,  # because max is 2 per question
         "details": results
     }
