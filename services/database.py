@@ -10,11 +10,15 @@ from sqlalchemy.orm import (
     sessionmaker
 )
 
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DB_DIR = PROJECT_ROOT / "database"
+DB_PATH = DB_DIR / "quiz_results.db"
+
 Base = declarative_base()
 
-engine = create_engine(
-    "sqlite:///database/quiz_results.db"
-)
+engine = create_engine(f"sqlite:///{DB_PATH}")
 
 Session = sessionmaker(bind=engine)
 
