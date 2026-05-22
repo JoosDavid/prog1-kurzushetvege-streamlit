@@ -1,71 +1,59 @@
-from services.utils import detect_answer_type
-from pathlib import Path
+from services.utils import detect_answer_type, hard_clean
 
 def extract_output(code_cell):
-
     outputs = code_cell.get("outputs", [])
+    collected = []
 
     for output in outputs:
 
-        if output.output_type == "stream":
-
-            text = output.get("text", "").strip()
-
+        if output.get("output_type") == "stream":
+            text = output.get("text", "")
+            if isinstance(text, list):
+                text = "".join(text)
             if text:
-                return text
+                collected.append(text)
 
-        elif output.output_type in [
-            "execute_result",
-            "display_data"
-        ]:
-
+        elif output.get("output_type") in ["execute_result", "display_data"]:
             data = output.get("data", {})
+            text = data.get("text/plain", "")
+            if isinstance(text, list):
+                text = "".join(text)
+            if text:
+                collected.append(text)
 
-            if "text/plain" in data:
-                return data["text/plain"].strip()
-
-    return ""
+    return collected[-1].strip() if collected else ""
 
 
 def parse_quiz(notebook):
 
-    cells = notebook.cells
-
-    # Ignore first 2 markdown cells
-    cells = cells[2:]
-
-    # Keep initialization code cell
-    setup_cell = cells[0]
-
-    # Remaining cells are quiz pairs
-    quiz_cells = cells[1:]
-
     questions = []
 
-    i = 0
+    pending_question = None
 
-    while i < len(quiz_cells) - 1:
+    for cell in notebook.cells:
 
-        markdown_cell = quiz_cells[i]
-        code_cell = quiz_cells[i + 1]
+        # STEP 1: find markdown question
+        if cell.cell_type == "markdown":
 
-        if (
-            markdown_cell.cell_type == "markdown"
-            and code_cell.cell_type == "code"
-        ):
+            text = hard_clean(cell.source).strip()
 
-            question = markdown_cell.source.strip()
+            if text:
+                pending_question = text
 
-            answer = extract_output(code_cell)
+        # STEP 2: find code answer AFTER markdown
+        elif cell.cell_type == "code" and pending_question:
 
-            answer_type = detect_answer_type(answer)
+            answer = extract_output(cell)
+            answer = hard_clean(answer)
 
-            questions.append({
-                "question": question,
-                "answer": answer,
-                "type": answer_type
-            })
+            if answer:
 
-        i += 2
+                questions.append({
+                    "question": pending_question,
+                    "answer": answer,
+                    "type": detect_answer_type(answer)
+                })
+
+            pending_question = None
 
     return questions
