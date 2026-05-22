@@ -2,15 +2,51 @@ from pathlib import Path
 import json
 
 
+# =========================================================
+# PATH RESOLUTION (works in notebook + streamlit + script)
+# =========================================================
+
+def get_data_dir() -> Path:
+    """
+    Tries to find the JSON folder no matter where you run from.
+    Works in:
+    - Streamlit
+    - Jupyter notebook (nbclient)
+    - python script
+    """
+
+    cwd = Path().resolve()
+
+    candidates = [
+        cwd / "json",
+        cwd / "data" / "json",
+        cwd.parent / "json",
+        cwd.parent / "data" / "json",
+        cwd.parent.parent / "data" / "json",
+    ]
+
+    for c in candidates:
+        if c.exists():
+            return c
+
+    raise FileNotFoundError(f"JSON folder not found from: {cwd}")
+
+
+# =========================================================
+# JSON LOADING
+# =========================================================
+
 def load_json(path: Path):
-    """Load a JSON file safely."""
+    """
+    Always UTF-8 safe.
+    """
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def extract_messages(obj):
     """
-    Extract message list from different possible JSON formats:
+    Supports multiple formats:
     - {"messages": [...]}
     - [...]
     """
@@ -24,66 +60,106 @@ def extract_messages(obj):
     return []
 
 
-def normalize_message(m: dict) -> dict:
-    """
-    Force a consistent schema so notebooks NEVER crash.
-    """
+# =========================================================
+# SAFE TYPE HELPERS
+# =========================================================
 
+def safe_int(x):
+    try:
+        return int(x)
+    except:
+        return 0
+
+
+def safe_photos(x):
+    if isinstance(x, list):
+        return len(x)
+    return safe_int(x)
+
+
+# =========================================================
+# TEXT SAFETY (fixes JÃ¡nos → János)
+# =========================================================
+
+def fix_encoding(text: str) -> str:
+    """
+    Repairs common UTF-8 mojibake issues.
+    """
+    if not isinstance(text, str):
+        return text
+
+    try:
+        return text.encode("latin1").decode("utf-8")
+    except:
+        return text
+
+
+# =========================================================
+# NORMALIZATION (CRITICAL FOR NOTEBOOK STABILITY)
+# =========================================================
+
+def normalize_message(m: dict) -> dict:
     if not isinstance(m, dict):
         return None
 
+    sender = m.get("sender_name") or "unknown"
+
+    content = m.get("content") or m.get("text") or ""
+    content_clean = m.get("content_clean") or content
+
     return {
-        # core fields
-        "sender_name": m.get("sender_name", "unknown"),
-        "content": m.get("content", "") or m.get("text", ""),
-        "content_clean": m.get("content_clean", "") or m.get("content", ""),
+        # identity
+        "sender_name": fix_encoding(sender),
 
-        # timestamps
-        "timestamp_ms": m.get("timestamp_ms", 0),
+        # text
+        "content": fix_encoding(content),
+        "content_clean": fix_encoding(content_clean),
 
-        # flags (safe numeric conversion)
-        "is_unsent": int(m.get("is_unsent", 0) or 0),
+        # time
+        "timestamp_ms": safe_int(m.get("timestamp_ms")),
 
-        # photos can be int, list, or missing → normalize to int count
-        "photos": (
-            len(m["photos"]) if isinstance(m.get("photos"), list)
-            else int(m.get("photos", 0) or 0)
-        ),
+        # flags
+        "is_unsent": safe_int(m.get("is_unsent")),
 
-        # optional time breakdown (may not exist in data)
+        # media
+        "photos": safe_photos(m.get("photos")),
+
+        # optional breakdown (may not exist)
         "year": m.get("year"),
         "month": m.get("month"),
         "day": m.get("day"),
     }
 
 
+# =========================================================
+# FILE TYPE DETECTION
+# =========================================================
+
 def is_names_file(filename: str) -> bool:
     return "names" in filename.lower()
 
 
-def load_all_messages(json_dir: Path):
-    """
-    Loads all message JSON files and returns:
-    - merged_messages (clean normalized list[dict])
-    - names_data (raw names file or None)
-    """
+# =========================================================
+# MAIN LOADER
+# =========================================================
 
-    merged_messages = []
-    names_data = None
+def load_all_messages(json_dir: Path):
+    merged = []
+    names = None
 
     for file in sorted(json_dir.glob("*.json")):
         data = load_json(file)
 
-        # handle names file separately
+        # names file skip
         if is_names_file(file.name):
-            names_data = data
+            names = data
             continue
 
         messages = extract_messages(data)
 
         for m in messages:
             cleaned = normalize_message(m)
-            if cleaned is not None:
-                merged_messages.append(cleaned)
+            if cleaned:
+                merged.append(cleaned)
 
-    return merged_messages, names_data
+    return merged, names
