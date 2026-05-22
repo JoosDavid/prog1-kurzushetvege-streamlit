@@ -5,31 +5,56 @@ from pathlib import Path
 from services.notebook_executor import execute_notebook
 from services.notebook_parser import parse_quiz
 from services.grading_service import grade_quiz
+from services.data_loader import load_all_messages
 
 from services.database import (
     save_result,
     fetch_results
 )
 
+# ---------------------------
+# PATHS
+# ---------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent
-NOTEBOOK_PATH = "data/notebooks/quiz.ipynb"
+NOTEBOOK_PATH = PROJECT_ROOT / "data" / "notebooks" / "quiz.ipynb"
+JSON_DIR = PROJECT_ROOT / "data" / "json"
 
+# ---------------------------
+# LOAD DATA ONCE (IMPORTANT)
+# ---------------------------
+@st.cache_data
+def get_data():
+    return load_all_messages(JSON_DIR)
+
+merged = get_data()
+
+# ---------------------------
+# UI
+# ---------------------------
 st.title("Notebook Quiz App")
 
 username = st.text_input("Enter your name")
 
+# ---------------------------
+# RUN NOTEBOOK ONLY WHEN REQUESTED
+# ---------------------------
 if st.button("Load Quiz"):
 
-    notebook = execute_notebook(NOTEBOOK_PATH, project_root=PROJECT_ROOT)
+    notebook = execute_notebook(
+        NOTEBOOK_PATH,
+        exec_env={"merged": merged}  
+    )
 
     questions = parse_quiz(notebook)
 
     st.session_state["questions"] = questions
 
+# ---------------------------
+# QUIZ RENDERING
+# ---------------------------
 if "questions" in st.session_state:
 
     questions = st.session_state["questions"]
-
     user_answers = {}
 
     st.header("Quiz")
@@ -37,7 +62,6 @@ if "questions" in st.session_state:
     for idx, q in enumerate(questions):
 
         st.markdown(f"### Question {idx + 1}")
-
         st.markdown(q["question"])
 
         if q["type"] == "integer":
@@ -92,24 +116,14 @@ if "questions" in st.session_state:
         for item in results["details"]:
 
             st.markdown("---")
-
             st.write("Question:", item["question"])
+            st.write("Your Answer:", item["user_answer"])
+            st.write("Correct Answer:", item["correct_answer"])
+            st.write("Correct:", item["correct"])
 
-            st.write(
-                "Your Answer:",
-                item["user_answer"]
-            )
-
-            st.write(
-                "Correct Answer:",
-                item["correct_answer"]
-            )
-
-            st.write(
-                "Correct:",
-                item["correct"]
-            )
-
+# ---------------------------
+# LEADERBOARD
+# ---------------------------
 st.header("Leaderboard")
 
 results = fetch_results()
@@ -126,8 +140,5 @@ if results:
     ])
 
     st.dataframe(
-        leaderboard.sort_values(
-            by="Score",
-            ascending=False
-        )
+        leaderboard.sort_values(by="Score", ascending=False)
     )
