@@ -58,14 +58,16 @@ if "questions" not in st.session_state:
     st.session_state["questions"] = None
 
 if st.button("Load Quiz"):
-    st.session_state["questions"] = [
-        {
-            "question": safe(q["question"]),
-            "answer": safe(q["answer"]),
-            "type": q["type"]
-        }
-        for q in load_quiz()
-    ]
+
+    if st.session_state["questions"] is None:
+        st.session_state["questions"] = [
+            {
+                "question": safe(q["question"]),
+                "answer": safe(q["answer"]),
+                "type": q["type"]
+            }
+            for q in load_quiz()
+        ]
 
 # ---------------------------
 # QUIZ RENDERING
@@ -139,20 +141,24 @@ if questions:
                 results["total"]
             )
 
-            st.success(
-                f"Score: {results['score']} / {results['total']}"
-            )
-
-            st.header("Detailed Results")
-
-            for item in results["details"]:
-                st.markdown("---")
-                st.write("Question:", item["question"])
-                st.write("Your Answer:", item["user_answer"])
-                st.write("Correct Answer:", item["correct_answer"])
-                st.write("Correct:", item["correct"])
-
+            st.session_state["results"] = results
             st.session_state["questions"] = None
+
+
+if "results" in st.session_state:
+
+    st.success(
+        f"Score: {st.session_state['results']['score']} / {st.session_state['results']['total']}"
+    )
+
+    st.subheader("Detailed Results")
+
+    df = pd.DataFrame(st.session_state["results"]["details"])
+
+    cols = ["question", "user_answer", "correct_answer", "correct"]
+    df = df.reindex(columns=cols)
+
+    st.dataframe(df)
 
 # ---------------------------
 # LEADERBOARD
