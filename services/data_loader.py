@@ -78,10 +78,8 @@ def safe_int(x):
         return 0
 
 
-def safe_photos(x):
-    if isinstance(x, list):
-        return len(x)
-    return safe_int(x)
+def safe_list_count(x):
+    return len(x) if isinstance(x, list) else 0
 
 
 # =========================================================
@@ -118,7 +116,6 @@ def normalize_message(m: dict) -> dict:
     content_clean = fix_encoding(content_clean)
 
     timestamp_ms = safe_int(m.get("timestamp_ms"))
-
     dt = datetime.fromtimestamp(timestamp_ms / 1000) if timestamp_ms else None
 
     return {
@@ -128,29 +125,25 @@ def normalize_message(m: dict) -> dict:
         # text
         "content": content,
         "content_clean": content_clean,
-
-        # derived text
         "content_l": len(content_clean),
 
         # time
         "timestamp_ms": timestamp_ms,
-
-        # derived time
         "year": dt.year if dt else None,
         "month": dt.month if dt else None,
         "day": dt.day if dt else None,
         "hour": dt.hour if dt else None,
+        "minute": dt.minute if dt else None,
 
         # flags
         "is_unsent": safe_int(m.get("is_unsent")),
 
-        # media
-        "photos": safe_photos(m.get("photos")),
+        # ✅ IMPORTANT: direct pass-through (NO recomputation)
+        "photos": safe_int(m.get("photos")),
+        "videos": safe_int(m.get("videos")),
+        "gifs": safe_int(m.get("gifs")),
 
-        "videos": safe_photos(m.get("photos")),
-
-        "gifs": safe_photos(m.get("photos")),
-
+        # reactions
         "reactions": m.get("reactions", [])
     }
 
