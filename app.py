@@ -5,7 +5,7 @@ from pathlib import Path
 from services.notebook_executor import execute_notebook
 from services.notebook_parser import parse_quiz
 from services.grading_service import grade_quiz
-from services.data_loader import load_all_messages
+from services.data_loader import load_messages_by_year, merge_years
 from services.utils import hard_clean
 
 from services.database import (
@@ -35,15 +35,20 @@ JSON_DIR = PROJECT_ROOT / "data" / "json"
 # ---------------------------
 @st.cache_data
 def get_data():
-    return load_all_messages(JSON_DIR)
+    yearly, names = load_messages_by_year(JSON_DIR)
+    merged = merge_years(yearly)
+    return merged, yearly, names
 
-merged, names = get_data()
+merged, yearly, names = get_data()
 
 @st.cache_data
 def load_quiz():
     notebook = execute_notebook(
         NOTEBOOK_PATH,
-        exec_env={"merged": merged}
+        exec_env={
+            "merged": merged,
+            "yearly": yearly
+        }
     )
     return parse_quiz(notebook)
 
@@ -74,8 +79,9 @@ if st.button("Load Quiz"):
 # ---------------------------
 
 questions = st.session_state.get("questions")
+quiz_submitted = st.session_state.get("quiz_submitted", False)
 
-if questions:
+if questions and not quiz_submitted:
 
     with st.form("quiz_form"):
         st.header("Quiz")
@@ -132,10 +138,11 @@ if questions:
             )
 
             st.session_state["results"] = results
+            st.session_state["quiz_submitted"] = True
             st.session_state["questions"] = None
 
 
-if "results" in st.session_state:
+if st.session_state.get("quiz_submitted"):
 
     st.success(
         f"Score: {st.session_state['results']['score']} / {st.session_state['results']['total']}"
@@ -143,13 +150,26 @@ if "results" in st.session_state:
 
     st.subheader("Detailed Results")
 
-    df = pd.DataFrame(st.session_state["results"]["details"])
+    raw = st.session_state["results"]["details"]
+
+    flat = []
+
+    for r in raw:
+        flat.append({
+            "question": r["question"],
+            "user_answer": " | ".join(r["user_answer"]) if isinstance(r["user_answer"], list) else r["user_answer"],
+            "correct_answers": " | ".join(r["correct_answers"]) if isinstance(r["correct_answers"], list) else r["correct_answers"],
+            "first_correct": r.get("first_correct"),
+            "all_correct": r.get("all_correct"),
+        })
+
+    df = pd.DataFrame(flat)
 
     # optional safety (ensures columns always exist)
     cols = ["question", "user_answer", "correct_answers", "first_correct", "all_correct"]
     df = df.reindex(columns=cols)
 
-    st.dataframe(df)
+    st.dataframe(df, use_container_width=True, height=400)
 
 # ---------------------------
 # LEADERBOARD

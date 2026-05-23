@@ -1,10 +1,17 @@
 from pathlib import Path
 import json
+import re
+from collections import defaultdict
+from datetime import datetime
 
 
 # =========================================================
 # PATH RESOLUTION (works in notebook + streamlit + script)
 # =========================================================
+
+def extract_year(filename: str):
+    match = re.search(r"(20\d{2})", filename)
+    return match.group(1) if match else "unknown"
 
 def get_data_dir() -> Path:
     """
@@ -107,27 +114,38 @@ def normalize_message(m: dict) -> dict:
     content = m.get("content") or m.get("text") or ""
     content_clean = m.get("content_clean") or content
 
+    content = fix_encoding(content)
+    content_clean = fix_encoding(content_clean)
+
+    timestamp_ms = safe_int(m.get("timestamp_ms"))
+
+    dt = datetime.fromtimestamp(timestamp_ms / 1000) if timestamp_ms else None
+
     return {
         # identity
         "sender_name": fix_encoding(sender),
 
         # text
-        "content": fix_encoding(content),
-        "content_clean": fix_encoding(content_clean),
+        "content": content,
+        "content_clean": content_clean,
+
+        # derived text
+        "content_l": len(content_clean),
 
         # time
-        "timestamp_ms": safe_int(m.get("timestamp_ms")),
+        "timestamp_ms": timestamp_ms,
+
+        # derived time
+        "year": dt.year if dt else None,
+        "month": dt.month if dt else None,
+        "day": dt.day if dt else None,
+        "hour": dt.hour if dt else None,
 
         # flags
         "is_unsent": safe_int(m.get("is_unsent")),
 
         # media
         "photos": safe_photos(m.get("photos")),
-
-        # optional breakdown (may not exist)
-        "year": m.get("year"),
-        "month": m.get("month"),
-        "day": m.get("day"),
     }
 
 
@@ -163,3 +181,30 @@ def load_all_messages(json_dir: Path):
                 merged.append(cleaned)
 
     return merged, names
+
+def load_messages_by_year(json_dir: Path):
+    yearly = defaultdict(list)
+    names = None
+
+    for file in sorted(json_dir.glob("*.json")):
+        data = load_json(file)
+
+        if is_names_file(file.name):
+            names = data
+            continue
+
+        year = extract_year(file.name)
+        messages = extract_messages(data)
+
+        for m in messages:
+            cleaned = normalize_message(m)
+            if cleaned:
+                yearly[year].append(cleaned)
+
+    return dict(yearly), names
+
+def merge_years(yearly_dict):
+    merged = []
+    for year in sorted(yearly_dict.keys()):
+        merged.extend(yearly_dict[year])
+    return merged
