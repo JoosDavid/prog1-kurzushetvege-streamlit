@@ -146,6 +146,12 @@ def normalize_message(m: dict) -> dict:
 
         # media
         "photos": safe_photos(m.get("photos")),
+
+        "videos": safe_photos(m.get("photos")),
+
+        "gifs": safe_photos(m.get("photos")),
+
+        "reactions": m.get("reactions", [])
     }
 
 
