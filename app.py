@@ -79,17 +79,24 @@ merged, yearly, names = get_data(
 # LOAD QUIZ
 # ---------------------------
 
-@st.cache_data
-def load_quiz(notebook_path, mtime, _merged, _yearly):
-    # Use leading underscore (_) for complex objects so Streamlit doesn't try to hash them
+@st.cache_data(show_spinner="A kvíz előkészítése, kérlek várj...")
+def load_quiz():
     notebook = execute_notebook(
-        notebook_path,
+        NOTEBOOK_PATH,
         exec_env={
-            "merged": _merged,
-            "yearly": _yearly
+            "merged": merged,
+            "yearly": yearly
         }
     )
-    return parse_quiz(notebook)
+
+    return [
+        {
+            "question": safe(q["question"]),
+            "answers": q["answers"],
+            "type": q["type"]
+        }
+        for q in parse_quiz(notebook)
+    ]
 
 
 # ---------------------------
@@ -104,15 +111,29 @@ if "questions" not in st.session_state:
 
 if st.button("Load Quiz"):
     if st.session_state["questions"] is None:
-        notebook_mtime = NOTEBOOK_PATH.stat().st_mtime if NOTEBOOK_PATH.exists() else 0
+        notebook_mtime = (
+            NOTEBOOK_PATH.stat().st_mtime_ns
+            if NOTEBOOK_PATH.exists()
+            else 0
+        )
+
         st.session_state["questions"] = [
             {
                 "question": safe(q["question"]),
                 "answers": q["answers"],
                 "type": q["type"]
             }
-            for q in load_quiz(str(NOTEBOOK_PATH), notebook_mtime, merged, yearly)
+            for q in load_quiz(
+                str(NOTEBOOK_PATH),
+                notebook_mtime,
+                DATA_SIGNATURE,
+                merged,
+                yearly
+            )
         ]
+
+        st.session_state["quiz_submitted"] = False
+        st.session_state["results"] = None
 
 # ---------------------------
 # QUIZ RENDERING
@@ -211,23 +232,41 @@ if st.session_state.get("quiz_submitted"):
     st.dataframe(df, use_container_width=True, height=400)
 
 # ---------------------------
-# LEADERBOARD
+# LIVE LEADERBOARD
 # ---------------------------
-st.header("Leaderboard")
 
-results = fetch_results()
 
-if results:
+@st.fragment(run_every="3s")
+def render_leaderboard():
 
-    leaderboard = pd.DataFrame([
-        {
-            "Username": safe(r.username),
-            "Score": r.score,
-            "Total": r.total
-        }
-        for r in results
-    ])
+    st.header("Leaderboard")
 
-    st.dataframe(
-        leaderboard.sort_values(by="Score", ascending=False)
-    )
+    results = fetch_results()
+
+    if results:
+
+        leaderboard = pd.DataFrame([
+            {
+                "Username": safe(r["username"]),
+                "Score": r["score"],
+                "Total": r["total"]
+            }
+            for r in results
+        ])
+
+        leaderboard = leaderboard.sort_values(
+            by="Score",
+            ascending=False
+        )
+
+        st.dataframe(
+            leaderboard,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+        st.info("No results yet.")
+
+
+render_leaderboard()
