@@ -20,8 +20,6 @@ def safe(x):
         return ""
 
 
-if "questions" not in st.session_state:
-    st.session_state["questions"] = None
 
 # ---------------------------
 # PATHS
@@ -79,71 +77,59 @@ merged, yearly, names = get_data(
 # LOAD QUIZ
 # ---------------------------
 
-@st.cache_data
-def load_quiz(notebook_path, notebook_mtime, data_signature, _merged, _yearly):
+NOTEBOOK_SIGNATURE = file_signature(NOTEBOOK_PATH)
+
+@st.cache_data(show_spinner="A kvíz előkészítése, kérlek várj...")
+def load_quiz(notebook_signature, data_signature):
     notebook = execute_notebook(
-        notebook_path,
+        NOTEBOOK_PATH,
         exec_env={
-            "merged": _merged,
-            "yearly": _yearly
+            "merged": merged,
+            "yearly": yearly
         }
     )
-    return parse_quiz(notebook)
+
+    return [
+        {
+            "question": safe(q["question"]),
+            "answers": q["answers"],
+            "type": q["type"]
+        }
+        for q in parse_quiz(notebook)
+    ]
 
 
 # ---------------------------
 # UI
 # ---------------------------
-st.title("Notebook Quiz App")
+st.title("Kurzushétvége Kvíz")
+
+questions = load_quiz(
+    NOTEBOOK_SIGNATURE,
+    DATA_SIGNATURE
+)
 
 username = safe(st.text_input("Enter your name"))
-
-if "questions" not in st.session_state:
-    st.session_state["questions"] = None
-
-if st.button("Load Quiz"):
-    if st.session_state["questions"] is None:
-        notebook_mtime = (
-            NOTEBOOK_PATH.stat().st_mtime_ns
-            if NOTEBOOK_PATH.exists()
-            else 0
-        )
-
-        st.session_state["questions"] = [
-            {
-                "question": safe(q["question"]),
-                "answers": q["answers"],
-                "type": q["type"]
-            }
-            for q in load_quiz(
-                str(NOTEBOOK_PATH),
-                notebook_mtime,
-                DATA_SIGNATURE,
-                merged,
-                yearly
-            )
-        ]
-
-        st.session_state["quiz_submitted"] = False
-        st.session_state["results"] = None
+if not username:
+    st.info("Please enter your name to start the quiz.")
+    st.stop()
 
 # ---------------------------
 # QUIZ RENDERING
 # ---------------------------
 
-questions = st.session_state.get("questions")
 quiz_submitted = st.session_state.get("quiz_submitted", False)
 
 if questions and not quiz_submitted:
 
     with st.form("quiz_form"):
-        st.header("Quiz")
+        st.header("Kvíz")
 
         user_answers = {}
 
         for idx, q in enumerate(questions):
         
-            st.markdown(f"### Question {idx + 1}")
+            st.markdown(f"### Kérdés {idx + 1}")
             st.markdown(safe(q["question"]))
 
             answers = q["answers"]
@@ -152,7 +138,7 @@ if questions and not quiz_submitted:
             if len(answers) == 1:
                 user_answers[idx] = [
                     st.text_input(
-                        f"Answer {idx}",
+                        f"Válasz {idx+1}",
                         key=f"q_{idx}"
                     )
                 ]
@@ -161,17 +147,17 @@ if questions and not quiz_submitted:
                 for j in range(len(answers)):
                     user_answers[idx].append(
                         st.text_input(
-                            f"Answer {idx}.{j+1}",
+                            f"Válasz {idx+1}.{j+1}",
                             key=f"q_{idx}_{j}"
                         )
                     )
 
-        submitted = st.form_submit_button("Submit Quiz")
+        submitted = st.form_submit_button("Kvíz beadása")
 
         if submitted:
 
             if not username:
-                st.warning("Please enter your name.")
+                st.warning("Kérlek, add meg a csapat nevét!")
                 st.stop()
 
             safe_answers = {
@@ -180,7 +166,7 @@ if questions and not quiz_submitted:
             }
 
             results = grade_quiz(
-                st.session_state["questions"],
+                questions,
                 safe_answers
             )
 
@@ -192,7 +178,6 @@ if questions and not quiz_submitted:
 
             st.session_state["results"] = results
             st.session_state["quiz_submitted"] = True
-            st.session_state["questions"] = None
 
 
 if st.session_state.get("quiz_submitted"):
@@ -201,7 +186,7 @@ if st.session_state.get("quiz_submitted"):
         f"Score: {st.session_state['results']['score']} / {st.session_state['results']['total']}"
     )
 
-    st.subheader("Detailed Results")
+    st.subheader("Részletes Eredmények")
 
     raw = st.session_state["results"]["details"]
 
@@ -220,8 +205,19 @@ if st.session_state.get("quiz_submitted"):
 
     cols = ["question", "user_answer", "correct_answers", "first_correct", "all_correct"]
     df = df.reindex(columns=cols)
+    df.index = range(1, len(df) + 1)
 
     st.dataframe(df, use_container_width=True, height=400)
+
+    if st.button("Új próbálkozás"):
+        st.session_state["quiz_submitted"] = False
+        st.session_state.pop("results", None)
+
+        for key in list(st.session_state.keys()):
+            if key.startswith("q_"):
+                del st.session_state[key]
+
+        st.rerun()
 
 # ---------------------------
 # LIVE LEADERBOARD
@@ -231,7 +227,7 @@ if st.session_state.get("quiz_submitted"):
 @st.fragment(run_every="3s")
 def render_leaderboard():
 
-    st.header("Leaderboard")
+    st.header("Ranglista")
 
     results = fetch_results()
 
@@ -239,15 +235,15 @@ def render_leaderboard():
 
         leaderboard = pd.DataFrame([
             {
-                "Username": safe(r["username"]),
-                "Score": r["score"],
-                "Total": r["total"]
+                "Csapatnév": safe(r["username"]),
+                "Elért pont": r["score"],
+                "Max pont": r["total"]
             }
             for r in results
         ])
 
         leaderboard = leaderboard.sort_values(
-            by="Score",
+            by="Elért pont",
             ascending=False
         )
 
@@ -258,7 +254,7 @@ def render_leaderboard():
         )
 
     else:
-        st.info("No results yet.")
+        st.info("Még nincs eredmény.")
 
 
 render_leaderboard()
