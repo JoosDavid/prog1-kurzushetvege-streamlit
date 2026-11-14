@@ -79,24 +79,16 @@ merged, yearly, names = get_data(
 # LOAD QUIZ
 # ---------------------------
 
-@st.cache_data(show_spinner="A kvíz előkészítése, kérlek várj...")
-def load_quiz():
+@st.cache_data
+def load_quiz(notebook_path, notebook_mtime, data_signature, _merged, _yearly):
     notebook = execute_notebook(
-        NOTEBOOK_PATH,
+        notebook_path,
         exec_env={
-            "merged": merged,
-            "yearly": yearly
+            "merged": _merged,
+            "yearly": _yearly
         }
     )
-
-    return [
-        {
-            "question": safe(q["question"]),
-            "answers": q["answers"],
-            "type": q["type"]
-        }
-        for q in parse_quiz(notebook)
-    ]
+    return parse_quiz(notebook)
 
 
 # ---------------------------
