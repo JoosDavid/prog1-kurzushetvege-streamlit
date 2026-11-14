@@ -30,27 +30,67 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 NOTEBOOK_PATH = PROJECT_ROOT / "data" / "notebooks" / "quiz.ipynb"
 JSON_DIR = PROJECT_ROOT / "data" / "json"
 
+
 # ---------------------------
-# LOAD DATA ONCE (IMPORTANT)
+# CACHE INVALIDATION HELPERS
 # ---------------------------
+
+def file_signature(path):
+    path = Path(path)
+    if not path.exists():
+        return None
+    stat = path.stat()
+    return (
+        str(path.resolve()),
+        stat.st_mtime_ns,
+        stat.st_size
+    )
+
+
+def directory_signature(directory):
+    directory = Path(directory)
+    return tuple(
+        file_signature(file)
+        for file in sorted(directory.glob("*.json"))
+    )
+
+
+# ---------------------------
+# LOAD DATA
+# ---------------------------
+
+DATA_SIGNATURE = directory_signature(JSON_DIR)
+
+
 @st.cache_data
-def get_data():
-    yearly, names = load_messages_by_year(JSON_DIR)
+def get_data(json_dir, data_signature):
+    yearly, names = load_messages_by_year(Path(json_dir))
     merged = merge_years(yearly)
     return merged, yearly, names
 
-merged, yearly, names = get_data()
+
+merged, yearly, names = get_data(
+    str(JSON_DIR),
+    DATA_SIGNATURE
+)
+
+
+# ---------------------------
+# LOAD QUIZ
+# ---------------------------
 
 @st.cache_data
-def load_quiz():
+def load_quiz(notebook_path, mtime, _merged, _yearly):
+    # Use leading underscore (_) for complex objects so Streamlit doesn't try to hash them
     notebook = execute_notebook(
-        NOTEBOOK_PATH,
+        notebook_path,
         exec_env={
-            "merged": merged,
-            "yearly": yearly
+            "merged": _merged,
+            "yearly": _yearly
         }
     )
     return parse_quiz(notebook)
+
 
 # ---------------------------
 # UI
@@ -63,15 +103,15 @@ if "questions" not in st.session_state:
     st.session_state["questions"] = None
 
 if st.button("Load Quiz"):
-
     if st.session_state["questions"] is None:
+        notebook_mtime = NOTEBOOK_PATH.stat().st_mtime if NOTEBOOK_PATH.exists() else 0
         st.session_state["questions"] = [
             {
                 "question": safe(q["question"]),
                 "answers": q["answers"],
                 "type": q["type"]
             }
-            for q in load_quiz()
+            for q in load_quiz(str(NOTEBOOK_PATH), notebook_mtime, merged, yearly)
         ]
 
 # ---------------------------
@@ -165,7 +205,6 @@ if st.session_state.get("quiz_submitted"):
 
     df = pd.DataFrame(flat)
 
-    # optional safety (ensures columns always exist)
     cols = ["question", "user_answer", "correct_answers", "first_correct", "all_correct"]
     df = df.reindex(columns=cols)
 
