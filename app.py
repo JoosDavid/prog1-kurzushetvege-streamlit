@@ -60,7 +60,7 @@ def directory_signature(directory):
 DATA_SIGNATURE = directory_signature(JSON_DIR)
 
 
-@st.cache_data
+@st.cache_resource
 def get_data(json_dir, data_signature):
     yearly, names = load_messages_by_year(Path(json_dir))
     merged = merge_years(yearly)
@@ -79,7 +79,7 @@ merged, yearly, names = get_data(
 
 NOTEBOOK_SIGNATURE = file_signature(NOTEBOOK_PATH)
 
-@st.cache_data(show_spinner="A kvíz előkészítése, kérlek várj...")
+@st.cache_resource(show_spinner="A kvíz előkészítése, kérlek várj...")
 def load_quiz(notebook_signature, data_signature):
     notebook = execute_notebook(
         NOTEBOOK_PATH,
@@ -109,69 +109,75 @@ questions = load_quiz(
     DATA_SIGNATURE
 )
 
-username = safe(st.text_input("Enter your name"))
-if not username:
-    st.info("Please enter your name to start the quiz.")
-    st.stop()
+if "username" not in st.session_state:
+    st.session_state["username"] = ""
+
+if not st.session_state["username"]:
+
+    with st.form("name_form", enter_to_submit=False):
+        name_input = st.text_input("Kérlek, add meg a csapat nevét!")
+        continue_clicked = st.form_submit_button("Folytatás")
+
+    if continue_clicked:
+        cleaned_name = safe(name_input).strip()
+
+        if cleaned_name:
+            st.session_state["username"] = cleaned_name
+        else:
+            st.warning("Kérlek, add meg a csapat nevét!")
+
+username = st.session_state["username"]
 
 # ---------------------------
 # QUIZ RENDERING
 # ---------------------------
 
-quiz_submitted = st.session_state.get("quiz_submitted", False)
+if username:
 
-if questions and not quiz_submitted:
+    quiz_submitted = st.session_state.get("quiz_submitted", False)
 
-    with st.form("quiz_form"):
-        st.header("Kvíz")
+    if questions and not quiz_submitted:
 
-        user_answers = {}
+        with st.form("quiz_form", enter_to_submit=False):
+            st.header("Kvíz")
 
-        for idx, q in enumerate(questions):
-        
-            st.markdown(f"### Kérdés {idx + 1}")
-            st.markdown(safe(q["question"]))
+            user_answers = {}
 
-            answers = q["answers"]
-            user_answers[idx] = []
+            for idx, q in enumerate(questions):
+                st.markdown(f"### Kérdés {idx + 1}")
+                st.markdown(safe(q["question"]))
 
-            if len(answers) == 1:
-                user_answers[idx] = [
-                    st.text_input(
-                        f"Válasz {idx+1}",
-                        key=f"q_{idx}"
-                    )
-                ]
-            else:
+                answers = q["answers"]
                 user_answers[idx] = []
-                for j in range(len(answers)):
-                    user_answers[idx].append(
+
+                if len(answers) == 1:
+                    user_answers[idx] = [
                         st.text_input(
-                            f"Válasz {idx+1}.{j+1}",
-                            key=f"q_{idx}_{j}"
+                            f"Válasz {idx+1}",
+                            key=f"q_{idx}"
                         )
-                    )
+                    ]
+                else:
+                    for j in range(len(answers)):
+                        user_answers[idx].append(
+                            st.text_input(
+                                f"Válasz {idx+1}.{j+1}",
+                                key=f"q_{idx}_{j}"
+                            )
+                        )
 
-        submitted = st.form_submit_button("Kvíz beadása")
+            submitted = st.form_submit_button("Kvíz leadása")
 
-        if submitted:
-
-            if not username:
-                st.warning("Kérlek, add meg a csapat nevét!")
-                st.stop()
-
+        if submitted and not st.session_state.get("quiz_submitted", False):
             safe_answers = {
                 k: [safe(x) for x in v]
                 for k, v in user_answers.items()
             }
 
-            results = grade_quiz(
-                questions,
-                safe_answers
-            )
+            results = grade_quiz(questions, safe_answers)
 
             save_result(
-                safe(username),
+                username,
                 results["score"],
                 results["total"]
             )
@@ -179,8 +185,18 @@ if questions and not quiz_submitted:
             st.session_state["results"] = results
             st.session_state["quiz_submitted"] = True
 
+    # Ide kerüljön a korábbi Detailed Results és Try Again kódod.
 
-if st.session_state.get("quiz_submitted"):
+
+def reset_quiz():
+    st.session_state["quiz_submitted"] = False
+    st.session_state.pop("results", None)
+
+    for key in list(st.session_state.keys()):
+        if key.startswith("q_"):
+            del st.session_state[key]
+
+if username and st.session_state.get("quiz_submitted"):
 
     st.success(
         f"Score: {st.session_state['results']['score']} / {st.session_state['results']['total']}"
@@ -209,15 +225,10 @@ if st.session_state.get("quiz_submitted"):
 
     st.dataframe(df, use_container_width=True, height=400)
 
-    if st.button("Új próbálkozás"):
-        st.session_state["quiz_submitted"] = False
-        st.session_state.pop("results", None)
-
-        for key in list(st.session_state.keys()):
-            if key.startswith("q_"):
-                del st.session_state[key]
-
-        st.rerun()
+    st.button(
+        "Új próbálkozás",
+        on_click=reset_quiz
+    )
 
 # ---------------------------
 # LIVE LEADERBOARD
